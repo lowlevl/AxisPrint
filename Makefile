@@ -8,4 +8,3 @@ dependencies:
 	sudo python setup.py install		
 
 install:
-	
