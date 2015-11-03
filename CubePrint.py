@@ -13,32 +13,45 @@ class Log:
     def __init__(self):
         self.none = None
     
-    def Warning(self, Text):
-        print('\033[1;33;40m' + Text + '\033[m'),
+    def Warning(self, Text, NoOEL = False):
+        if NoOEL:
+            print('\033[1;33;40m' + Text + '\033[m'),
+        else:
+            print('\033[1;33;40m' + Text + '\033[m')
         
-    def Fail(self, Text):
-        print('\033[1;31;40m' + Text + '\033[m'),
+    def Fail(self, Text, NoOEL = False):
+        if NoOEL:
+            print('\033[1;31;40m' + Text + '\033[m'),
+        else:
+            print('\033[1;31;40m' + Text + '\033[m')
 
-    def Critical(self, Text):
-        print('\033[1;37;41m' + Text + '\033[m'),
+    def Critical(self, Text, NoOEL = False):
+        if NoOEL:
+            print('\033[1;37;41m' + Text + '\033[m'),
+        else:
+            print('\033[1;37;41m' + Text + '\033[m')
 
-    def Info(self, Text):
-        print('\033[1;30;40m' + Text + '\033[m'),       
+    def Info(self, Text, NoOEL = False):
+        if NoOEL:
+            print('\033[1;30;40m' + Text + '\033[m'),
+        else:
+            print('\033[1;30;40m' + Text + '\033[m')     
     
-    def Success(self, Text):
-        print('\033[1;32;40m' + Text + '\033[m'),
-    
-    def Normal(self, Text):
-        print(Text)
+    def Success(self, Text, NoOEL = False):
+        if NoOEL:
+            print('\033[1;32;40m' + Text + '\033[m'),
+        else:
+            print('\033[1;32;40m' + Text + '\033[m')
+        
 Log = Log()
 
 Config = ConfigParser.ConfigParser()
 Config.read('config.conf')
 
 #Gpio config
-UseGpio = Config.getboolean("Printer", "GpioOnOff")
-GpioPin = int(Config.get("Printer", "GpioPin"))
-PowerOffConnect = Config.getboolean("Printer", "PowerOffConnect")
+UseGpio = Config.getboolean("Gpio", "Enabled")
+GpioPin = int(Config.get("Gpio", "GpioPin"))
+PowerOffConnect = Config.getboolean("Gpio", "PowerOffConnect")
 
 if UseGpio:
     GPIO.setmode(GPIO.BOARD)
@@ -68,7 +81,7 @@ def SerialRefresh(): #List serial ports
     global SerialArray
     SerialArray = str(os.popen("ls /dev/tty* | sed '/tty[0-9]*$/d'").read()) #Getting list of serial ports
     SerialArray = SerialArray.split('\n') #Creating string list
-    Log.Info("[CubePrint]Identified Usables serials.. : " + str(SerialArray) + "\r\n")
+    Log.Info("[CubePrint]Identified Usables serials.. : " + str(SerialArray))
     
 def PlugUnplug():
     if UseGpio:
@@ -156,7 +169,7 @@ class CubePrint(object): #Main server
     def ConnectPrinter(self,_Serial,_BaudSpeed):
         global Printer
         SelectedSerial = _Serial
-        Log.Info("[CubePrint]Selected serial port : " + _Serial + "   Baud Speed : " + _BaudSpeed + "\r\n")
+        Log.Info("[CubePrint]Selected serial port : " + _Serial + "   Baud Speed : " + _BaudSpeed + "")
         Printer = serial.Serial()
         Printer.port = _Serial #Set serial port
         Printer.baudrate = _BaudSpeed #Set baudrate
@@ -167,30 +180,30 @@ class CubePrint(object): #Main server
         Printer.xonxoff = True #disable software flow control
         
 		#Trying to connect to the printer
-        Log.Info("[CubePrint]Trying to connect...")
+        Log.Info("[CubePrint]Trying to connect...", True)
         if PowerOffConnect: 
             GPIO.output(GpioPin, GPIO.LOW)
             time.sleep(0.5)
         try: 
             Printer.open()
         except Exception, e:
-            Log.Fail("Failed !\r\n")
+            Log.Fail("Failed !")
 
         if Printer.isOpen():
-            Log.Success("Done.\r\n")
+            Log.Success("Done.")
             Printer.flushInput()
             Printer.flushOutput()
         else:
-            Log.Fail("Failed !\r\n")
+            Log.Fail("Failed !")
 		
         if PowerOffConnect: 
             GPIO.output(GpioPin, GPIO.HIGH)
             time.sleep(1)
 			
         #Ok. Connected trying ton send a test command
-        Log.Info("[CubePrint]Sending an M105 request..")
+        Log.Info("[CubePrint]Sending an M105 request..", True)
         if Printer.write("M105"):
-		    Log.Success("Ok.\r\n")
+		    Log.Success("Ok.")
         
 		#Waiting for response a bit
         time.sleep(0.1)
@@ -214,52 +227,52 @@ class CubePrint(object): #Main server
     # Pi Fucntions
     @cherrypy.expose
     def DownPi(self):
-        Log.Info("[CubePrint]User requested a Pi shutdown !\r\n")
+        Log.Info("[CubePrint]User requested a Pi shutdown !")
         os.system("sudo poweroff")
         raise cherrypy.HTTPRedirect("/")
 
     @cherrypy.expose
     def ReBootPi(self):
-        Log.Info("[CubePrint]User requested a Pi reboot !\r\n")
+        Log.Info("[CubePrint]User requested a Pi reboot !")
         os.system("sudo reboot")    
         raise cherrypy.HTTPRedirect("/")
     
     # Print Functions
     @cherrypy.expose
     def StartPrint(self):
-        Log.Info("[CubePrint]Starting print\r\n")
+        Log.Info("[CubePrint]Starting print")
         raise cherrypy.HTTPRedirect("/")
     
     @cherrypy.expose
     def PausePrint(self):
-        Log.Info("[CubePrint]Pausing print\r\n")    
+        Log.Info("[CubePrint]Pausing print")    
         raise cherrypy.HTTPRedirect("/")
     
     @cherrypy.expose
     def ResumePrint(self):
-        Log.Info("[CubePrint]Resuming print\r\n")    
+        Log.Info("[CubePrint]Resuming print")    
         raise cherrypy.HTTPRedirect("/")
         
     @cherrypy.expose
     def CancelPrint(self):
-        Log.Info("[CubePrint]Cancelling print\r\n")    
+        Log.Info("[CubePrint]Cancelling print")    
         raise cherrypy.HTTPRedirect("/")
         
     @cherrypy.expose
     def EmergencyStop(self):
-        Log.Info("[CubePrint]Emergency stop launched !\r\n")
+        Log.Info("[CubePrint]Emergency stop launched !")
         raise cherrypy.HTTPRedirect("/")
 
     @cherrypy.expose
     def PrinterUnplug(self):
-        Log.Info("[CubePrint]Removing printer alimentation !\r\n")
+        Log.Info("[CubePrint]Removing printer alimentation !")
         if UseGpio:
             GPIO.output(GpioPin, GPIO.LOW)
         raise cherrypy.HTTPRedirect("/")
 		
     @cherrypy.expose
     def PrinterPlug(self):
-        Log.Info("[CubePrint]Powering on alimentation !\r\n")
+        Log.Info("[CubePrint]Powering on alimentation !")
         if UseGpio:
             GPIO.output(GpioPin, GPIO.HIGH)
         raise cherrypy.HTTPRedirect("/")
@@ -267,6 +280,6 @@ class CubePrint(object): #Main server
 #Final Launch
 if __name__ == '__main__':
     SerialRefresh()
-    Log.Info("[CubePrint]Starting server..\r\n")
+    Log.Info("[CubePrint]Starting server.")
     cherrypy.quickstart(CubePrint(), '/', "server.conf") #Launching server !
 
