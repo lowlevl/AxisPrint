@@ -9,9 +9,14 @@ dependencies:
 	@tar -xzf CherryPy-3.8.0.tar.gz
 	@echo "Installing CherryPy.."
 	cd ./CherryPy-3.8.0 && sudo python setup.py install
+	@echo "Cloning Simplejson repo.."
+	git clone https://github.com/simplejson/simplejson.git
+	@echo "Installing Simplejson.."
+	cd ./simplejson && sudo python setup.py install
 	@echo "Removing garbage.."
 	sudo rm -f CherryPy-3.8.0.tar.gz
 	sudo rm -rf CherryPy-3.8.0
+	sudo rm -rf simplejson
 	@echo "Done."
 
 install:
