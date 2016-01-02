@@ -5,7 +5,6 @@ import os
 import sys  
 import time
 import simplejson
-from datetime import datetime
 import RPi.GPIO as GPIO
 import ConfigParser
 import cherrypy
@@ -39,9 +38,9 @@ class Log: #Colored logs !
 
     def Info(self, Text, NoOEL = False):
         if NoOEL:
-            print('\033[1;30;40m' + Text + '\033[m'),
+            print('\033[0;37;40m' + Text + '\033[m'),
         else:
-            print('\033[1;30;40m' + Text + '\033[m')     
+            print('\033[0;37;40m' + Text + '\033[m')     
     
     def Success(self, Text, NoOEL = False):
         if NoOEL:
@@ -53,7 +52,7 @@ class Printer: #Printer class
     def __init__(self):
         self.port = None
         self.baudrate = None
-        self.InstructionNumber = 1
+        self.InstructionNumber = 0
         self.ConsoleLog = """
              """
 
@@ -84,11 +83,12 @@ class Printer: #Printer class
             PrinterInterface.flushInput()
             PrinterInterface.flushOutput()
             ConsoleTemp = ConsoleTemp + "[!] Connected to " + _SerialPort + "\n"
+            Printer.Send("M110 N0")
     
     def Disconnect(self):
         global ConsoleTemp
         global PrinterInterface
-        self.InstructionNumber = 1
+        self.InstructionNumber = 0
         if PrinterInterface.isOpen():
             PrinterInterface.close() #Closing serial
             ConsoleTemp = ConsoleTemp + "[!] Diconnected\n"
@@ -125,15 +125,15 @@ class Printer: #Printer class
         ToSend = ""
         if PrinterInterface.isOpen():
             ToSend = ("N" + str(self.InstructionNumber) + " " + (str(_Command)).rstrip() + "\r\n") #Creating full command to sent to printer
-			
-			#Printer vars(Including a Console log if printer request a resend)
+            
+            #Printer vars(Including a Console log if printer request a resend)
             self.ConsoleLog += ToSend
             self.InstructionNumber += 1
-			
-			#Sending command
+            
+            #Sending command
             PrinterInterface.write(ToSend)
-			
-			#Log the user
+            
+            #Log the user
             ConsoleTemp = ConsoleTemp + "[] " + str(ToSend) + "\r\n"
             Log.Info("Command sent : " + ToSend)
             
@@ -238,11 +238,7 @@ class PiPrintr(object): #Main server
     @cherrypy.expose
     def ConnectPrinter(self, _SerialPort, _BaudSpeed):
         Log.Info("Selected serial port : " + _SerialPort + "   Baud Speed : " + _BaudSpeed)
-        
         Printer.Connect(_SerialPort, _BaudSpeed)
-        
-        # Ok. Connected trying ton send a test command
-        Printer.Send("M105")
 
     @cherrypy.expose
     def DisconnectPrinter(self):
@@ -313,6 +309,7 @@ class PiPrintr(object): #Main server
     
     @cherrypy.expose
     def ClearConsole(self):
+        Log.Warning("Cleared console !")
         global ConsoleTemp
         ConsoleTemp = ""
         return ""
