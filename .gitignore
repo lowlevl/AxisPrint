@@ -3,3 +3,6 @@
 
 ### Temporary Make file ###
 .dependInstalled
+
+### Models Dir ###
+models
