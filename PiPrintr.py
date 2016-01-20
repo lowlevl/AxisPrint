@@ -55,64 +55,65 @@ class Printer: #Printer class
         self.InstructionNumber = 0
         self.ConsoleLog = """
              """
+        self.GCode = None
+        self.PrinterInterface = serial.Serial()
+        self.PausedPrint = False
+        self.Printing = False
 
     def Connect(self, _SerialPort, _BaudSpeed):
-        global ConsoleTemp
-        global PrinterInterface
+        global NewConsoleLines
         self.port = _SerialPort
         self.baudrate = _BaudSpeed
-        PrinterInterface = serial.Serial()
-        PrinterInterface.port = _SerialPort #Set serial port
-        PrinterInterface.baudrate = _BaudSpeed #Set baudrate
-        PrinterInterface.bytesize = serial.EIGHTBITS #number of bits per bytes
-        PrinterInterface.parity = serial.PARITY_NONE #set parity check: no parity
-        PrinterInterface.stopbits = serial.STOPBITS_ONE #number of stop bits
-        PrinterInterface.timeout = None #block read
-        PrinterInterface.xonxoff = False #disable software flow control
+        self.PrinterInterface = serial.Serial()
+        self.PrinterInterface.port = _SerialPort #Set serial port
+        self.PrinterInterface.baudrate = _BaudSpeed #Set baudrate
+        self.PrinterInterface.bytesize = serial.EIGHTBITS #number of bits per bytes
+        self.PrinterInterface.parity = serial.PARITY_NONE #set parity check: no parity
+        self.PrinterInterface.stopbits = serial.STOPBITS_ONE #number of stop bits
+        self.PrinterInterface.timeout = None #block read
+        self.PrinterInterface.xonxoff = False #disable software flow control
         
         #Trying to connect to the printer
         Log.Info("Trying to connect...", True)
         try: 
-            PrinterInterface.open()
+            self.PrinterInterface.open()
         except Exception, e:
             Log.Fail("Failed !")
             raise cherrypy.HTTPRedirect("/")
 
-        if PrinterInterface.isOpen():
+        if self.PrinterInterface.isOpen():
             Log.Success("Done.")
-            PrinterInterface.flushInput()
-            PrinterInterface.flushOutput()
-            ConsoleTemp = ConsoleTemp + "[!] Connected to " + _SerialPort + "\n"
+            self.PrinterInterface.flushInput()
+            self.PrinterInterface.flushOutput()
+            NewConsoleLines = NewConsoleLines + "[!] Connected to " + _SerialPort + "\n"
             Printer.Send("M110 N0")
     
     def Disconnect(self):
-        global ConsoleTemp
-        global PrinterInterface
+        global NewConsoleLines
         self.InstructionNumber = 0
-        if PrinterInterface.isOpen():
-            PrinterInterface.close() #Closing serial
-            ConsoleTemp = ConsoleTemp + "[!] Diconnected\n"
+        if self.PrinterInterface.isOpen():
+            self.PrinterInterface.close() #Closing serial
+            NewConsoleLines = NewConsoleLines + "[!] Diconnected\n"
             Log.Warning("Printer disconnected.")
         else:
             Log.Failed("Can't disconnect not connected !")
     
     def EmergencyStop(self):
-        global PrinterInterface
         global EmergencyMode
-        if PrinterInterface.isOpen() and EmergencyMode == 0:
+        if self.PrinterInterface.isOpen() and EmergencyMode == 0:
             Log.Warning("Emergency ! Mode:" + str(EmergencyMode))
             self.Send("M112")
             
-        if PrinterInterface.isOpen() and EmergencyMode == 1:
+        if self.PrinterInterface.isOpen() and EmergencyMode == 1:
             Log.Warning("Emergency ! Mode:" + str(EmergencyMode))
             self.Send("M112")
             Log.Warning("DTR: On")
-            PrinterInterface.setDTR(1)
+            self.PrinterInterface.setDTR(1)
             time.sleep(1)
             Log.Warning("DTR: Off")
-            PrinterInterface.setDTR(0)
+            self.PrinterInterface.setDTR(0)
             
-        if PrinterInterface.isOpen() and EmergencyMode == 2:
+        if self.PrinterInterface.isOpen() and EmergencyMode == 2:
             Log.Warning("Emergency ! Mode:" + str(EmergencyMode))
             self.Send("M112")
             self.Disconnect()
@@ -120,10 +121,9 @@ class Printer: #Printer class
             
             
     def Send(self, _Command):
-        global PrinterInterface
-        global ConsoleTemp
+        global NewConsoleLines
         ToSend = ""
-        if PrinterInterface.isOpen():
+        if self.PrinterInterface.isOpen() and not (_Command == None or _Command == ""):
             ToSend = ("N" + str(self.InstructionNumber) + " " + (str(_Command)).rstrip() + "\r\n") #Creating full command to sent to printer
             
             #Printer vars(Including a Console log if printer request a resend)
@@ -131,24 +131,59 @@ class Printer: #Printer class
             self.InstructionNumber += 1
             
             #Sending command
-            PrinterInterface.write(ToSend)
+            self.PrinterInterface.write(ToSend)
             
             #Log the user
-            ConsoleTemp = ConsoleTemp + "[] " + str(ToSend) + "\r\n"
-            Log.Info("Command sent : " + ToSend)
+            NewConsoleLines = NewConsoleLines + "[] " + str(ToSend) + "\r\n"
+            #Log.Info("Command sent : " + ToSend)
             
             time.sleep(0.3)
             out = ""
             tmp = ""
             waitcount = 0
-            while PrinterInterface.inWaiting() > 0:
-                tmp = PrinterInterface.readline()
+            while self.PrinterInterface.inWaiting() > 0:
+                tmp = self.PrinterInterface.read()
                 out += tmp
-                ConsoleTemp = ConsoleTemp + tmp
+                NewConsoleLines = NewConsoleLines + tmp
             return out
         else:
             Log.Fail("Not oppened !")
             return None
+        
+    def LoadFile(self, _FileName):
+        self.GCode = ""
+        with open(_FileName, 'r') as File:
+            self.GCode = File.readlines()        
+            
+    def Print(self):
+        if not self.Printing and self.PrinterInterface.isOpen():
+            self.Printing = True
+            self.PausePrint = False
+            i = 0
+            while True:
+                if not self.PausedPrint:
+                    Line = self.GCode[i]
+                    Log.Info("Sending Line: " + i)
+                    i = i+1
+                    if not Line:
+                        self.Printing = False
+                        break
+                    if not (Line == "\r\n"  or Line == "\n"  or Line == "\r" or list(Line)[0] == " " or list(Line)[0] == ";"):
+                        Printer.Send(Line)
+                if not self.Printing:
+                    break
+    
+    def Pause(self):
+        global NewConsoleLines
+        if self.PausedPrint == True:
+            self.PausedPrint = False
+            NewConsoleLines = NewConsoleLines + "[!] Resumed print !\n"
+        else: 
+            if self.PausedPrint == False:
+                self.PausedPrint = True
+                NewConsoleLines = NewConsoleLines + "[!] Paused print !\n"
+            
+            
 
 class PiPrintr(object): #Main server
     @cherrypy.expose
@@ -163,7 +198,13 @@ class PiPrintr(object): #Main server
                         <link rel="stylesheet" href="css/style.css"> <!-- Link to css file -->
                         <link rel="icon" type="image/png" href="icon.png" /> <!-- Link to js main file -->
                         <script src="http://code.jquery.com/jquery-2.1.3.min.js"></script> <!-- Link to jQuery library -->
-                        <script src="js/main.js"></script>
+                        <script src="js/main.js"></script> <!-- Link to Main.js file -->
+                        
+                        <!-- BootStrap -->
+                        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
+                        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap-theme.min.css" integrity="sha384-fLW2N01lMqjakBkx3l/M9EahuwpSfeNvV63J5ezn3uZzapT0u7EYsXMjQV+0En5r" crossorigin="anonymous">
+                        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
+                        <!-- End of BootStrap -->
                     </head>
                     <body> <!-- Content 
                     
@@ -174,6 +215,8 @@ class PiPrintr(object): #Main server
                             </div>
                         </noscript>
                         <!-- Endif no Javascript -->
+                        
+                        <span class="glyphicon glyphicon-search" aria-hidden="true"></span>
                         
                         <!-- Printer connect module -->
                         Serial:<br>
@@ -225,11 +268,27 @@ class PiPrintr(object): #Main server
                             <button id="ClrConsole">Clear</button>
                         <!-- End Console -->
                         
+                        <!-- Upload -->
+                            <br>File: <br>
+                            <div class="fileUpload btn btn-info">
+                                <span>Upload</span>
+                                <input id="File2Up" type="file" accept=".gcode" class="Upload"/>
+                            </div>
+                            <div class="progress" style="width:300px">
+                                <div class="progress-bar progress-bar-info" id="UpBar" role="progressbar" style="width:0%">
+                                    <div id="UpSuccess"></div>
+                                </div>
+                            </div>
+                        <!-- End Upload -->
+                        
                         <!-- Camera module --><br>
                             Camera: <br>
                             <img src="''' + CamURL + '''"></img>
                         <!-- End Camera module -->
                         
+                        <!-- ConnErrorPopUp module -->
+							<div id="ConnErrorPopUp"></div>
+                        <!-- End ConnErrorPopUp module -->
                         </body> <!-- End of Content -->
                 </html>     
             '''
@@ -267,19 +326,20 @@ class PiPrintr(object): #Main server
     # Print Functions
     @cherrypy.expose
     def StartPrint(self):
-        raise cherrypy.HTTPRedirect("/")
+        Printer.LoadFile(os.path.abspath(os.getcwd()) + "/models/composition.gcode")
+        Printer.Print()
     
     @cherrypy.expose
-    def PausePrint(self):  
-        raise cherrypy.HTTPRedirect("/")
+    def PausePrint(self):
+        Printer.Pause()
     
     @cherrypy.expose
-    def ResumePrint(self): 
-        raise cherrypy.HTTPRedirect("/")
+    def ResumePrint(self):
+        Log.Info()
         
     @cherrypy.expose
     def CancelPrint(self):   
-        raise cherrypy.HTTPRedirect("/")
+        Log.Info()
         
     @cherrypy.expose
     def EmergencyStop(self):
@@ -302,24 +362,38 @@ class PiPrintr(object): #Main server
             Log.Warning("Disabled GPIO an trying to use it !")
         
     @cherrypy.expose
-    def GetConsole(self):
-        global ConsoleTemp
+    def Get(self):
         cherrypy.response.headers['Content-Type'] = 'application/json'
-        return simplejson.dumps(dict(ConsoleText=ConsoleTemp))
+        global NewConsoleLines
+        NewConsoleLines_tmp = ""
+        NewConsoleLines_tmp = NewConsoleLines
+        NewConsoleLines = ""
+        return simplejson.dumps(dict(NewLines=NewConsoleLines_tmp))
     
+    # File Functions
     @cherrypy.expose
-    def ClearConsole(self):
-        Log.Warning("Cleared console !")
-        global ConsoleTemp
-        ConsoleTemp = ""
-        return ""
+    def UpLoad(self, _UploadedFile, FileName, Size):
+        Log.Info("Starting upload of " + FileName + " who has a size of " + Size + "octet(s)..", True)
+        Path2Save = "models/" + FileName;
+        FileData = ""
+        
+        while True:
+            datatmp = _UploadedFile.file.read(8192)
+            FileData += datatmp
+            if not datatmp:
+                break
+            
+        File2Write = open(Path2Save, 'w')
+        File2Write.write(FileData)
+        File2Write.close()
+        Log.Success("Ok.")
+        
 
 #Define Global vars#            
 Log = Log()
 Printer = Printer()
-PrinterInterface = serial.Serial()
 SerialArray = None
-ConsoleTemp = ""
+NewConsoleLines = ""
 
 ############################
 #----------Config----------#
