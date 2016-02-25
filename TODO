@@ -1,2 +1,8 @@
-    -Slic3r web interface control
-    -Uploader in html5
+***** PiPrintr TO-DO list ****
+
+    - Slic3r Web slicing interface
+    - Monitoring with these commands :
+        M114 #Return Axis position
+        M105 #Return Bed and Extruder temp
+        M115 #Get Firmware Version and Capabilities
+    - File utility(Delete, Rename, HDD Used/Size)
