@@ -1,15 +1,16 @@
 #!/usr/bin/python
 
-print("\033[1;30;40mLoading libs...\033[m"), #Importing all libs
+print("Loading libs..."), #Importing all libs
 import os
 import sys  
 import time
 import simplejson
+from threading import Thread
 import RPi.GPIO as GPIO
 import ConfigParser
 import cherrypy
 import serial
-print("\033[1;32;40mOk\033[m") 
+print("Ok") 
 
 if not os.geteuid() == 0: #Check if is started as root
     sys.exit('Must be run as root')
@@ -52,16 +53,19 @@ class Printer: #Printer class
     def __init__(self):
         self.port = None
         self.baudrate = None
-        self.InstructionNumber = 0
         self.ConsoleLog = """
              """
-        self.GCode = None
         self.PrinterInterface = serial.Serial()
-        self.PausedPrint = False
-        self.Printing = False
+        
+        self.SendLocked = False
+        
+        QueueThread = PrintingThread()
+        QueueThread.start()
 
     def Connect(self, _SerialPort, _BaudSpeed):
         global NewConsoleLines
+        global GCodeQueue
+        global InstructionNumber
         self.port = _SerialPort
         self.baudrate = _BaudSpeed
         self.PrinterInterface = serial.Serial()
@@ -73,24 +77,28 @@ class Printer: #Printer class
         self.PrinterInterface.timeout = None #block read
         self.PrinterInterface.xonxoff = False #disable software flow control
         
+        InstructionNumber = 0
+        
         #Trying to connect to the printer
         Log.Info("Trying to connect...", True)
         try: 
             self.PrinterInterface.open()
         except Exception, e:
             Log.Fail("Failed !")
-            raise cherrypy.HTTPRedirect("/")
 
         if self.PrinterInterface.isOpen():
             Log.Success("Done.")
             self.PrinterInterface.flushInput()
             self.PrinterInterface.flushOutput()
             NewConsoleLines = NewConsoleLines + "[!] Connected to " + _SerialPort + "\n"
-            Printer.Send("M110 N0")
+            GCodeQueue.insert(0, "M110 N0")
     
     def Disconnect(self):
         global NewConsoleLines
-        self.InstructionNumber = 0
+        global InstructionNumber
+        
+        InstructionNumber = 0
+        
         if self.PrinterInterface.isOpen():
             self.PrinterInterface.close() #Closing serial
             NewConsoleLines = NewConsoleLines + "[!] Diconnected\n"
@@ -100,13 +108,18 @@ class Printer: #Printer class
     
     def EmergencyStop(self):
         global EmergencyMode
+        global GCodeQueue
+        global InstructionNumber
+        
+        InstructionNumber = 0
+        
         if self.PrinterInterface.isOpen() and EmergencyMode == 0:
             Log.Warning("Emergency ! Mode:" + str(EmergencyMode))
-            self.Send("M112")
+            GCodeQueue.insert(0, "M112")
             
         if self.PrinterInterface.isOpen() and EmergencyMode == 1:
             Log.Warning("Emergency ! Mode:" + str(EmergencyMode))
-            self.Send("M112")
+            GCodeQueue.insert(0, "M112")
             Log.Warning("DTR: On")
             self.PrinterInterface.setDTR(1)
             time.sleep(1)
@@ -115,7 +128,7 @@ class Printer: #Printer class
             
         if self.PrinterInterface.isOpen() and EmergencyMode == 2:
             Log.Warning("Emergency ! Mode:" + str(EmergencyMode))
-            self.Send("M112")
+            GCodeQueue.insert(0, "M112")
             self.Disconnect()
             self.Connect(self.port, self.baudrate)
             
@@ -123,68 +136,73 @@ class Printer: #Printer class
     def Send(self, _Command):
         global NewConsoleLines
         ToSend = ""
-        if self.PrinterInterface.isOpen() and not (_Command == None or _Command == ""):
-            ToSend = ("N" + str(self.InstructionNumber) + " " + (str(_Command)).rstrip() + "\r\n") #Creating full command to sent to printer
-            
-            #Printer vars(Including a Console log if printer request a resend)
-            self.ConsoleLog += ToSend
-            self.InstructionNumber += 1
+        if self.PrinterInterface.isOpen():
+            ToSend = ((str(_Command)).rstrip() + "\r\n") #Creating full command to sent to printer
             
             #Sending command
             self.PrinterInterface.write(ToSend)
             
             #Log the user
             NewConsoleLines = NewConsoleLines + "[] " + str(ToSend) + "\r\n"
-            #Log.Info("Command sent : " + ToSend)
-            
-            time.sleep(0.3)
-            out = ""
-            tmp = ""
-            waitcount = 0
-            while self.PrinterInterface.inWaiting() > 0:
-                tmp = self.PrinterInterface.read()
-                out += tmp
-                NewConsoleLines = NewConsoleLines + tmp
-            return out
         else:
             Log.Fail("Not oppened !")
-            return None
+    
+    def Read(self):
+        global NewConsoleLines
+        Text = self.PrinterInterface.read(self.PrinterInterface.inWaiting())
+        NewConsoleLines = NewConsoleLines + Text
+        return Text
         
     def LoadFile(self, _FileName):
-        self.GCode = ""
+        global GCodeQueue
+        GCode = ""
         with open(_FileName, 'r') as File:
-            self.GCode = File.readlines()        
-            
-    def Print(self):
-        if not self.Printing and self.PrinterInterface.isOpen():
-            self.Printing = True
-            self.PausePrint = False
-            i = 0
-            while True:
-                if not self.PausedPrint:
-                    Line = self.GCode[i]
-                    Log.Info("Sending Line: " + i)
-                    i = i+1
-                    if not Line:
-                        self.Printing = False
-                        break
-                    if not (Line == "\r\n"  or Line == "\n"  or Line == "\r" or list(Line)[0] == " " or list(Line)[0] == ";"):
-                        Printer.Send(Line)
-                if not self.Printing:
-                    break
+            GCode = File.readlines()
+            GCodeQueue = GCodeQueue + GCode
+            Log.Info("Done loading GCode !")
     
     def Pause(self):
+        global PausedPrint
         global NewConsoleLines
-        if self.PausedPrint == True:
-            self.PausedPrint = False
+        if PausedPrint == True:
+            PausedPrint = False
             NewConsoleLines = NewConsoleLines + "[!] Resumed print !\n"
         else: 
-            if self.PausedPrint == False:
-                self.PausedPrint = True
+            if PausedPrint == False:
+                PausedPrint = True
                 NewConsoleLines = NewConsoleLines + "[!] Paused print !\n"
+   
+    def Cancel(self):
+        global GCodeQueue
+        global NewConsoleLines
+        GCodeQueue = ['']
+        NewConsoleLines = NewConsoleLines + "[!] Canceled print !\n"
+        Log.Warning("Canceled print !")
             
-            
+class PrintingThread(Thread): # Send the queue to the printer
+    def __init__(self):
+        Thread.__init__(self)
 
+    def run(self):
+        global PausedPrint
+        global GCodeQueue
+        global InstructionNumber
+        PausedPrint = False
+        while True:
+            if len(GCodeQueue) > 1 and not PausedPrint:
+                Log.Info("Queue : " + str(len(GCodeQueue)))
+                Line = GCodeQueue[0]
+                if (Line == None or Line == "" or Line == "\r" or Line == "\n" or Line == "\r\n" or Line == "\n\r" or list(Line)[0] == ";"):
+                    del GCodeQueue[0]
+                else:
+                    Printer.Send("N" + str(InstructionNumber) + " " + Line)
+                    InstructionNumber = InstructionNumber + 1
+                    while True:
+                        if "ok" in Printer.Read():
+                            break                        
+                        time.sleep(0.01)
+                    del GCodeQueue[0]
+      
 class PiPrintr(object): #Main server
     @cherrypy.expose
     def index(self): #Dynamic index
@@ -193,21 +211,25 @@ class PiPrintr(object): #Main server
             <!DOCTYPE html>
                 <html lang="fr">
                     <head>
-                        <meta charset="ascii">
-                        <title>PiPrintr</title> <!-- Set the title -->
+                        <meta charset="UTF-8">
+                        <title>PiPrintr :: 3D Printer server</title>
+                        
                         <link rel="stylesheet" href="css/style.css"> <!-- Link to css file -->
-                        <link rel="icon" type="image/png" href="icon.png" /> <!-- Link to js main file -->
+                        <link rel="icon" type="image/png" href="icon.png" /> <!-- Link to icon -->
                         <script src="http://code.jquery.com/jquery-2.1.3.min.js"></script> <!-- Link to jQuery library -->
                         <script src="js/main.js"></script> <!-- Link to Main.js file -->
                         
-                        <!-- BootStrap -->
+                        <!-- BootStrap include -->
                         <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
-                        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap-theme.min.css" integrity="sha384-fLW2N01lMqjakBkx3l/M9EahuwpSfeNvV63J5ezn3uZzapT0u7EYsXMjQV+0En5r" crossorigin="anonymous">
                         <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
                         <!-- End of BootStrap -->
                     </head>
-                    <body> <!-- Content 
-                    
+                    <body> <!-- Content -->
+                        
+                        <div class="container-fluid">
+                            <h2 class="pull-right">Bienvenue sur PiPrintr</h2>
+                        </div>
+                        
                         <!-- If no Javascript -->
                         <noscript class="noscript">
                             <div>
@@ -216,81 +238,127 @@ class PiPrintr(object): #Main server
                         </noscript>
                         <!-- Endif no Javascript -->
                         
-                        <span class="glyphicon glyphicon-search" aria-hidden="true"></span>
-                        
-                        <!-- Printer connect module -->
-                        Serial:<br>
-                            <select id="SerialPort" size="1"> ''' + str(SerialHtmlList()) + '''
-                            </select><br>
-                            BaudSpeed:<br>
-                            <select id="BaudSpeed" size="1">
-                                <option>9600</option>
-                                <option>14400</option>
-                                <option>19200</option>
-                                <option>28800</option>
-                                <option>38400</option>
-                                <option>56000</option>
-                                <option>57600</option>
-                                <option>76800</option>
-                                <option>111112</option>
-                                <option>115200</option>
-                                <option>128000</option>
-                                <option>230400</option>
-                                <option>250000</option>
-                                <option>256000</option>
-                                <option>460800</option>
-                                <option>500000</option>
-                                <option>921600</option>
-                                <option>1000000</option>
-                                <option>1500000</option>
-                            </select><br>
-                            <button id="ConnectRequest">Connect</button> <button id="DscnctPrtr">DisconnectPrinter</button>
-                        <button id="RfrshSer">ReFresh</button>
-                        <!-- End Printer connect module -->
-                        
-                        <br><br>
-                        Pi :
-                        <button id="RbootPi">ReBoot</button>
-                        <button id="ShutPi">PowerOff</button>
-                        <br><br>
-                        Printing:
-                        <button id="StartPrt">Start</button>
-                        <button id="PausePrt">Pause</button>
-                        <button id="CancelPrt">Cancel</button>
-                        <button id="EmerStop">Emergency Stop</button>''' + str(PlugUnplug()) + '''<br>
-                        
-                        <!-- Console -->
-                            <textarea id="Console" cols="50" rows="15" style="resize: none;" disabled>
-                            </textarea><br>
-                            <input type="text" id="CommandInput"></input>
-                            <button id="ConsoleSender">Send Command</button>
-                            <input type="checkbox" id="AutoDefil"></input>Auto-Defil
-                            <button id="ClrConsole">Clear</button>
-                        <!-- End Console -->
-                        
-                        <!-- Upload -->
-                            <br>File: <br>
-                            <div class="fileUpload btn btn-info">
-                                <span>Upload</span>
-                                <input id="File2Up" type="file" accept=".gcode" class="Upload"/>
-                            </div>
-                            <div class="progress" style="width:300px">
-                                <div class="progress-bar progress-bar-info" id="UpBar" role="progressbar" style="width:0%">
-                                    <div id="UpSuccess"></div>
+                        <div class="container">
+                            <!-- Printer connect module -->
+                                <legend>Printer connection</legend>
+                                <div class="form-horizontal">
+                                    <div class="form-group">
+                                        <label class="col-md-4 control-label" for="SerialPort">Serial : </label>
+                                        <div class="col-md-4">
+                                            <select id="SerialPort" size="1" class="form-control"> ''' + str(SerialHtmlList()) + '''
+                                            </select>
+                                        </div>
+                                    </div>    
+                                    
+                                    <div class="form-group">    
+                                        <label class="col-md-4 control-label" for="BaudSpeed">BaudSpeed : </label>
+                                        <div class="col-md-4">
+                                            <select id="BaudSpeed" size="1" class="form-control">
+                                                <option>9600</option>
+                                                <option>14400</option>
+                                                <option>19200</option>
+                                                <option>28800</option>
+                                                <option>38400</option>
+                                                <option>56000</option>
+                                                <option>57600</option>
+                                                <option>76800</option>
+                                                <option>111112</option>
+                                                <option>115200</option>
+                                                <option>128000</option>
+                                                <option>230400</option>
+                                                <option>250000</option>
+                                                <option>256000</option>
+                                                <option>460800</option>
+                                                <option>500000</option>
+                                                <option>921600</option>
+                                                <option>1000000</option>
+                                                <option>1500000</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <div class="col-md-4"></div>
+                                        <div class="col-md-2"><button id="ConnectRequest" class="btn btn-success"><i class="glyphicon glyphicon-log-in"></i> Connect</button></div>
+                                        <button id="DscnctPrtr" class="btn btn-danger"><i class="glyphicon glyphicon-log-out"></i> DisconnectPrinter</button>
+                                        <button id="RfrshSer" class="btn btn-warning"><i class="glyphicon glyphicon-refresh"></i> ReFresh</button>
+                                    </div>
                                 </div>
-                            </div>
-                        <!-- End Upload -->
-                        
-                        <!-- Camera module --><br>
-                            Camera: <br>
-                            <img src="''' + CamURL + '''"></img>
-                        <!-- End Camera module -->
-                        
-                        <!-- ConnErrorPopUp module -->
-							<div id="ConnErrorPopUp"></div>
-                        <!-- End ConnErrorPopUp module -->
-                        </body> <!-- End of Content -->
-                </html>     
+                            <!-- End Printer connect module -->
+
+                            <!-- Pi power module -->
+                                <legend>Pi</legend>
+                                <center>
+                                    <div class="form-group">
+                                        <button id="RbootPi" class="btn btn-warning"><i class="glyphicon glyphicon-refresh"></i> ReBoot</button>
+                                        <button id="ShutPi" class="btn btn-danger"><i class="glyphicon glyphicon-off"></i> PowerOff</button>
+                                    </div>
+                                </center>
+                            <!-- End Pi power module -->
+
+                            <!-- Printing control module -->
+                                <legend>Printing control</legend>
+                                <button id="StartPrt" class="btn btn-primary"><i class="glyphicon glyphicon-play"></i> Start</button>
+                                <button id="PausePrt" class="btn btn-primary"><i class="glyphicon glyphicon-pause"></i> Pause</button>
+                                <button id="CancelPrt" class="btn btn-warning"><i class="glyphicon glyphicon-stop"></i> Cancel</button>
+                                <button id="EmerStop" class="btn btn-danger"><i class="glyphicon glyphicon-alert"></i> Emergency Stop</button>''' + str(PlugUnplug()) + '''<br>
+                                <br>
+                            <!-- End Printing control module -->
+                            
+                            <!-- Console -->
+                                <div class="form-horizontal">
+                                    <textarea id="Console" rows="15" style="resize: none;" class="form-control" disabled></textarea><br>
+                                    <div class="col-md-6">
+                                        <input id="CommandInput" class="form-control input-md" type="text"/>
+                                    </div>
+                                    
+                                    <div class="col-md-4">
+                                        <div class="row">
+                                            <button id="ConsoleSender" class="btn btn-primary"><i class="glyphicon glyphicon-console"></i> Send Command</button>
+                                            <button id="ClrConsole" class="btn btn-warning"><i class="glyphicon glyphicon-ban-circle"></i> Clear</button>
+                                        </div>
+                                    </div>
+                                    
+                                    <label class="control-label" for="AutoDefil">Auto-Defil </label><input type="checkbox" id="AutoDefil"/>
+                                </div><br>
+                            <!-- End Console -->
+                            
+                            <!-- Upload -->
+                                <legend>File</legend>
+                                <div class="form-horizontal">                                    
+                                    <div class="col-md-2">
+                                        <center>
+                                            <label>File list :</label>
+                                            <div id="FileList"></div>
+                                        </center>
+                                    </div>
+                                    <div class="col-md-10">
+                                        <div class="row">
+                                            <div id="FileButton" class="fileUpload btn btn-primary" style="margin:0px; margin-left:15px">
+                                                <i class="glyphicon glyphicon-upload"></i> Upload
+                                                <input id="File2Up" type="file" accept=".gcode" class="Upload"/>
+                                            </div>
+                                            <button id="CancelUp" class="btn btn-danger disabled" style="margin:0px"><i class="glyphicon glyphicon-remove"></i> Cancel</button>
+                                        </div>
+                                        <div class="progress" style="margin:0px; margin-top:10px">
+                                            <div class="progress-bar progress-bar-info" id="UpBar" role="progressbar" style="width:0%">
+                                                <div id="UpSuccess"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div><br><br>
+                            <!-- End Upload -->
+                            
+                            <!-- Camera module -->
+                                <legend>Camera</legend>
+                                <img src="''' + CamURL + '''"></img>
+                            <!-- End Camera module -->
+                            
+                            <!-- ConnErrorPopUp module -->
+                                <div id="ConnErrorPopUp"></div>
+                            <!-- End ConnErrorPopUp module -->
+                        </div>
+                    </body> <!-- End of Content -->
+                </html>
             '''
             
     # Printer Functions
@@ -310,7 +378,8 @@ class PiPrintr(object): #Main server
     
     @cherrypy.expose
     def Console(self, cmd):
-        Printer.Send(cmd.splitlines()[0])     
+        global GCodeQueue
+        GCodeQueue.insert(0, cmd.splitlines()[0])
     
     # Pi Fucntions
     @cherrypy.expose
@@ -326,20 +395,15 @@ class PiPrintr(object): #Main server
     # Print Functions
     @cherrypy.expose
     def StartPrint(self):
-        Printer.LoadFile(os.path.abspath(os.getcwd()) + "/models/composition.gcode")
-        Printer.Print()
+        Printer.LoadFile("models/composition.gcode")
     
     @cherrypy.expose
     def PausePrint(self):
         Printer.Pause()
-    
-    @cherrypy.expose
-    def ResumePrint(self):
-        Log.Info()
         
     @cherrypy.expose
     def CancelPrint(self):   
-        Log.Info()
+        Printer.Cancel()
         
     @cherrypy.expose
     def EmergencyStop(self):
@@ -368,12 +432,13 @@ class PiPrintr(object): #Main server
         NewConsoleLines_tmp = ""
         NewConsoleLines_tmp = NewConsoleLines
         NewConsoleLines = ""
-        return simplejson.dumps(dict(NewLines=NewConsoleLines_tmp))
+        return simplejson.dumps(dict(NewLines=NewConsoleLines_tmp, FileList=str(os.popen("ls models").read())))
     
     # File Functions
     @cherrypy.expose
     def UpLoad(self, _UploadedFile, FileName, Size):
-        Log.Info("Starting upload of " + FileName + " who has a size of " + Size + "octet(s)..", True)
+        Log.Success("Done upload of " + FileName + " (" + Size + " octets)")
+        Log.Info("Starting processing...", True)
         Path2Save = "models/" + FileName;
         FileData = ""
         
@@ -382,18 +447,31 @@ class PiPrintr(object): #Main server
             FileData += datatmp
             if not datatmp:
                 break
-            
+        
+
+        if not os.path.exists(os.path.dirname(Path2Save)):
+            os.makedirs(os.path.dirname(Path2Save))
+        
         File2Write = open(Path2Save, 'w')
         File2Write.write(FileData)
         File2Write.close()
-        Log.Success("Ok.")
+        
+        uid = os.environ.get('SUDO_UID')
+        gid = os.environ.get('SUDO_GID')
+        if uid is not None:
+            os.chown(Path2Save, int(uid), int(gid))
+        
+        Log.Success("Done !")
         
 
 #Define Global vars#            
 Log = Log()
 Printer = Printer()
 SerialArray = None
+PausedPrint = False
+GCodeQueue = ['']
 NewConsoleLines = ""
+InstructionNumber = 0
 
 ############################
 #----------Config----------#
@@ -426,8 +504,8 @@ else:
 def PlugUnplug(): #Add or remove functions in panel
     if UseGpio:
         return '''
-        <button id="ATXon">ATXon</button>
-        <button id="ATXoff">ATXoff</button>'''
+        <button id="ATXon" class="btn btn-inverse"><i class="glyphicon glyphicon-ok-sign"></i> ATXon</button>
+        <button id="ATXoff" class="btn btn-inverse"><i class="glyphicon glyphicon-remove-sign"></i> ATXoff</button>'''
     else: return ''
 #---End of GPIO Config---#
 
@@ -459,7 +537,6 @@ def SerialHtmlList(): #Create the select list of serials
         code = code + "<option>" + SerialArray[x] + "</option>\n"
         x = x+1
     return code
-    
 
 #Final Launch
 if __name__ == '__main__':
