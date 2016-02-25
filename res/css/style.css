@@ -10,6 +10,10 @@ body {
   margin: 0px;
 }
 
+textarea {
+	width: 100%;
+}
+
 .noscript {
     width: 100%;
     height: 100%; /* will cover the text displayed when javascript is enabled*/

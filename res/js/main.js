@@ -39,6 +39,7 @@ $(function(){ // JQuerry header
                     $("#Console").val($("#Console").val() + Data['NewLines']); // Just add the new line(s) to the TextArea
                 }
                 
+                $("#FileList").html(Data['FileList']);
                 
 				if (ConnectionLost == true){
 					ConnectionLost = false;
@@ -95,26 +96,65 @@ $(function(){ // JQuerry header
 			alert("Not GCODE");
 			return;
 		}
+		
+        $("#File2Up").val("");
+        
+		//Disable Upload button
+		$("#FileButton").addClass("disabled");
+        $('#File2Up').prop('disabled', true);
+		
+        //Preparing request
 		var UpBar = $("#UpBar");
 		var DataForm = new FormData();
 		DataForm.append("_UploadedFile", FileUp);
 		DataForm.append("FileName", FileUp.name);
 		DataForm.append("Size", FileUp.size);
 		
+		var oReq = new XMLHttpRequest();
+		
 		//Reset bar
 		$("#UpSuccess").text("");
 		UpBar.width("0%");
 		UpBar.attr("class", "progress-bar progress-bar-info");
 		
+		//Activate cancel button
+		$("#CancelUp").removeClass("disabled");
+		$('#CancelUp').bind('click', function(){
+			$("#CancelUp").addClass("disabled");
+            $('#CancelUp').unbind('click');
+            
+			$("#FileButton").removeClass("disabled");
+            $('#File2Up').prop('disabled', false);
+			
+			oReq.abort();
+			
+			UpBar.width("100%");
+			UpBar.attr("class", "progress-bar progress-bar-danger");
+			$("#UpSuccess").text("Cancelled by user.");
+            return;
+		});
 		
-		var oReq = new XMLHttpRequest();
 		oReq.onload = function() {
 			if (oReq.status == 200) {
 				$("#UpSuccess").text("Uploaded!");
+                
+				$("#FileButton").removeClass("disabled");
+                $('#File2Up').prop('disabled', false);
+          
+				$("#CancelUp").addClass("disabled");
+                $('#CancelUp').unbind('click');
+				
 				UpBar.width("100%");
 				UpBar.attr("class", "progress-bar progress-bar-success");
 			} else {
 				$("#UpSuccess").text("Error " + oReq.status + " occurred uploading your file");
+                
+				$("#FileButton").removeClass("disabled");
+                $('#File2Up').prop('disabled', false);
+
+				$("#CancelUp").addClass("disabled");
+                $('#CancelUp').unbind('click');
+                
 				UpBar.width("100%");
 				UpBar.attr("class", "progress-bar progress-bar-danger");
 			}
