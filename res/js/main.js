@@ -39,7 +39,14 @@ $(function(){ // JQuerry header
                     $("#Console").val($("#Console").val() + Data['NewLines']); // Just add the new line(s) to the TextArea
                 }
                 
-                $("#FileList").html(Data['FileList']);
+                $("#FileList").html("");
+                
+                FileString = Data['FileList'];
+                FileArray = FileString.split(" ");   
+
+                for(i = 0; i < FileArray.length; i = i + 1) {
+                    $("#FileList").html($("#FileList").html() + FileArray[i] + "<button id='delbutton' class='btn btn-danger'><i class='glyphicon glyphicon-trash'></i></button>")
+                }
                 
 				if (ConnectionLost == true){
 					ConnectionLost = false;

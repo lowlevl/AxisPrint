@@ -305,7 +305,7 @@ class PiPrintr(object): #Main server
                             <!-- End Printing control module -->
                             
                             <!-- Console -->
-                                <div class="form-horizontal">
+                                <div class="row">
                                     <textarea id="Console" rows="15" style="resize: none;" class="form-control" disabled></textarea><br>
                                     <div class="col-md-6">
                                         <input id="CommandInput" class="form-control input-md" type="text"/>
@@ -317,21 +317,21 @@ class PiPrintr(object): #Main server
                                             <button id="ClrConsole" class="btn btn-warning"><i class="glyphicon glyphicon-ban-circle"></i> Clear</button>
                                         </div>
                                     </div>
-                                    
-                                    <label class="control-label" for="AutoDefil">Auto-Defil </label><input type="checkbox" id="AutoDefil"/>
+                                   
+                                    <span class="label label-default" style="padding:10px"><i class="glyphicon glyphicon-sort"></i> Auto-Defil <input type="checkbox" id="AutoDefil"/></span>
                                 </div><br>
                             <!-- End Console -->
                             
                             <!-- Upload -->
                                 <legend>File</legend>
-                                <div class="form-horizontal">                                    
-                                    <div class="col-md-2">
+                                <div class="form-horizontal">       
+                                    <div class="col-md-3">
                                         <center>
-                                            <label>File list :</label>
+                                            <h5><label>File list :</label></h4>
                                             <div id="FileList"></div>
                                         </center>
                                     </div>
-                                    <div class="col-md-10">
+                                    <div class="col-md-9">
                                         <div class="row">
                                             <div id="FileButton" class="fileUpload btn btn-primary" style="margin:0px; margin-left:15px">
                                                 <i class="glyphicon glyphicon-upload"></i> Upload
