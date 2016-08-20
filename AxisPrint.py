@@ -379,7 +379,7 @@ class AxisPrint(object): #Main server
         global GCodeQueue
         GCodeQueue.insert(0, cmd.splitlines()[0])
 
-    # Pi Fucntions
+    # Host Fucntions
     @cherrypy.expose
     def DownHost(self):
         Log.Critical("Shuting down !")
