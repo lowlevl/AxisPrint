@@ -201,7 +201,7 @@ class PrintingThread(Thread): # Send the queue to the printer
                         time.sleep(0.01)
                     del GCodeQueue[0]
 
-class PiPrintr(object): #Main server
+class AxisPrint(object): #Main server
     @cherrypy.expose
     def index(self): #Dynamic index
         global CamURL
@@ -381,12 +381,12 @@ class PiPrintr(object): #Main server
 
     # Pi Fucntions
     @cherrypy.expose
-    def DownPi(self):
+    def DownHost(self):
         Log.Critical("Shuting down !")
         os.system("sudo poweroff")
 
     @cherrypy.expose
-    def ReBootPi(self):
+    def ReBootHost(self):
         Log.Critical("Rebooting !")
         os.system("sudo reboot")
 
@@ -504,5 +504,5 @@ def SerialHtmlList(): #Create the select list of serials
 if __name__ == '__main__':
     SerialRefresh()
     Log.Info("Starting server at : " + str(ServerHost) + ":" + str(ServerPort))
-    cherrypy.quickstart(PiPrintr(), '/', "server.conf") #Launching server !
+    cherrypy.quickstart(AxisPrint(), '/', "server.conf") #Launching server !
 
