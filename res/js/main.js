@@ -188,13 +188,11 @@ $(function(){ // JQuerry header
 	/* All links triggers */
 	$('#RfrshSer').click(function(){$.ajax({url: '/ReFreshSerials'});});
 	$('#DscnctPrtr').click(function(){$.ajax({url: '/DisconnectPrinter'});});
-	$('#RbootPi').click(function(){$.ajax({url: '/ReBootPi'});});
-	$('#ShutPi').click(function(){$.ajax({url: '/DownPi'});});
+	$('#RbootHost').click(function(){$.ajax({url: '/ReBootHost'});});
+	$('#ShutHost').click(function(){$.ajax({url: '/DownHost'});});
 	$('#StartPrt').click(function(){$.ajax({url: '/StartPrint'});});
 	$('#PausePrt').click(function(){$.ajax({url: '/PausePrint'});});
 	$('#CancelPrt').click(function(){$.ajax({url: '/CancelPrint'});});
 	$('#EmerStop').click(function(){$.ajax({url: '/EmergencyStop'});});
-	$('#ATXon').click(function(){$.ajax({url: '/ATXon'});});
-	$('#ATXoff').click(function(){$.ajax({url: '/ATXoff'});});
 	$('#ClrConsole').click(function(){$("#Console").val("")});
 });
