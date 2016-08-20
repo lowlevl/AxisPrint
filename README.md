@@ -1,5 +1,5 @@
 # AxisPrint
-3D Printer server with Slic3r integrated (Designed for RaspberryPi)
+Web interfaced 3D Printer server, with host control command line an everything you want, tou can ask me :D
 
 How to install :
 
